@@ -129,11 +129,11 @@ class BytesParser(object):
             cont["lastBytes"] = [None]
         self.last = cont["lastBytes"]
 
-        self.re_attr = re.compile(r'^(?:set_name|set_cmt|update_extra_cmt|create_byte|create_word|create_dword|create_qword|create_oword|create_float|create_insn|create_strlit|MakeStruct|make_array)\s*\((?:x=)?([^,\)]+).+$')
+        self.re_attr = re.compile(r'^(?:set_name|set_cmt|update_extra_cmt|create_byte|create_tbyte|create_word|create_dword|create_qword|create_oword|create_yword|create_float|create_double|create_insn|create_strlit|create_struct|MakeStruct|make_array)\s*\((?:x=)?([^,\)]+).+$')
         # self.re_cmt = re.compile(r'^set_cmt\s*\(([^,]+),\s*"[^"]*",\s*[^\)]+\);$')
         # self.re_cmt2 = re.compile(r'^update_extra_cmt\s*\(([^,]+),\s*[^,]+,\s*"[^"]*"\);$')
         # self.re_create = re.compile(r'^create_(?:dword|insn)\s*\((?:x=)?([^\)]+)\);$')
-        self.re_op = re.compile(r'^op_(?:hex|stkvar|plain_offset|dec|seg)\s*\(x(,\s*[^\)]+)+\);$')
+        self.re_op = re.compile(r'^op_(?:hex|stkvar|offset|plain_offset|dec|seg|enum|chr)\s*\(x.*?\);$')
         self.re_tog = re.compile(r'^toggle_sign\s*\(x,\s*[^\)]+\);$')
         # self.re_name = re.compile(r'^set_name\s*\(([^,]+),\s*"[^"]*"\);$')
         # self.re_mkst = re.compile(r'^MakeStruct\s*\(([^,]+),\s*"[^"]*"\);$')
@@ -189,7 +189,7 @@ class FunctionsParser(object):
         self.cont = cont["funcs"]
 
         self.re_new = re.compile(r'^add_func\s*\(([^,]+),([^\)]+)\);$')
-        self.re_attr = re.compile(r'^(?:set_func_flags|SetType|set_frame_size|define_local_var)\s*\(([^,\)]+).+$')
+        self.re_attr = re.compile(r'^(?:set_name|set_func_cmt|set_func_flags|SetType|set_frame_size|define_local_var)\s*\(([^,\)]+).+$')
         # del_func set_func_end
 
     def parse(self, line):
@@ -205,6 +205,35 @@ class FunctionsParser(object):
             return
 
         raise BaseException("FunctionsParser get unparse line: " + line)
+
+class EnumsParser(object):
+    def __init__(self, cont):
+        if "enums" not in cont:
+            cont["enums"] = OrderedDict()
+        self.cont = cont["enums"]
+
+        self.re_name = re.compile(r'^id = add_enum\(-1,"([^"]+)",[^\)]+\);$')
+        self.re_member = re.compile(r'^add_enum_member\(id,"[^"]+"(,\s*[^,\)]+){2}\);$')
+        self.re_attr = re.compile(r'^set_enum_bf\(id,[^\)]+\);$')
+        self.last = None
+
+    def parse(self, line):
+        if line == "return id;":
+            return
+
+        ret = self.re_name.match(line)
+        if ret:
+            st = [line]
+            self.cont[ret.group(1)] = st
+            self.last = st
+            return
+
+        ret = self.re_member.match(line) or self.re_attr.match(line)
+        if ret:
+            self.last.append(line)
+            return
+
+        raise BaseException("EnumsParser get unparse line: " + line)
 
 def get_parser(line, cont):
     idx = line.index("(")
@@ -227,6 +256,9 @@ def get_parser(line, cont):
 
     if name.startswith("Functions_"):
         return FunctionsParser(cont)
+
+    if name.startswith("Enums_"):
+        return EnumsParser(cont)
 
     raise BaseException("get_parser get unsupport function name: " + name)
 
@@ -294,7 +326,7 @@ def gen_struct(cont1, cont2):
 
     return "\n".join(adds) + "\n" + "\n".join(changes) + "\n"
 
-def gen_struct_type_bytes(cont1, cont2):
+def gen_simple(cont1, cont2):
     ret = []
     for k, v2 in cont2.iteritems():
         flag = False
@@ -320,11 +352,11 @@ def gen_function(cont1, cont2):
             v1 = cont1[k]
             if v2 != v1:
                 if v2.end_change(v1):
-                    ret.append("  set_func_end({0},{1})".format(v2.start, v2.end))
+                    ret.append("  set_func_end({0},{1});".format(v2.start, v2.end))
                 if v2.attr_change(v1):
                     ret.extend(v2.attr_sub(v1))
         else:
-            ret.append("  add_func({0},{1})".format(v2.start, v2.end))
+            ret.append("  add_func({0},{1});".format(v2.start, v2.end))
             ret.extend(v2.attrs)
 
     return "\n".join(ret) + "\n"
@@ -336,12 +368,24 @@ def gen_file(cont1, cont2):
 
 static main(void) {
 set_inf_attr(INF_GENFLAGS, INFFL_LOADIDC|get_inf_attr(INF_GENFLAGS));
+  Enums();              // enumerations
   Structures();         // structure types
   ApplyStrucTInfos();   // structure type infos
   Patches();            // manual patches
   Bytes();              // individual bytes (code,data)
   Functions();          // function definitions
   set_inf_attr(INF_GENFLAGS, ~INFFL_LOADIDC&get_inf_attr(INF_GENFLAGS));
+}
+
+static Enums(void) {
+  auto id;
+  begin_type_updating(UTP_ENUM);
+"""
+
+    print gen_simple(cont1["enums"], cont2["enums"]) # enums change not support
+
+    print """
+  end_type_updating(UTP_ENUM);
 }
 
 static Structures(void) {
@@ -360,7 +404,7 @@ static ApplyStrucTInfos() {
   auto id;
 """
 
-    print gen_struct_type_bytes(cont1["structType"], cont2["structType"])
+    print gen_simple(cont1["structType"], cont2["structType"])
 
     print """
 }
@@ -378,7 +422,7 @@ static Bytes(void) {
 #define id x
 """
 
-    print gen_struct_type_bytes(cont1["bytes"], cont2["bytes"])
+    print gen_simple(cont1["bytes"], cont2["bytes"])
 
     print """
 }
