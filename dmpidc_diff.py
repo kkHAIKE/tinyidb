@@ -69,7 +69,7 @@ class StructuresParser(object):
 
         self.re_new = re.compile(r'^id = add_struc\(-1,"([^"]+)",\d\);$')
         self.re_name = re.compile(r'^id = get_struc_id\("([^"]+)"\);$')
-        self.re_member = re.compile(r'^mid = add_struc_member\(id,"[^"]+",\s*([^,]+)(,\s*[^,]+){3,6}\);$')
+        self.re_member = re.compile(r'^mid = add_struc_member\(id,"[^"]+",\s*([^,]+),.+?\);$')
         self.re_attr = re.compile(r'^set_struc_align\(id,([^\)]+)\);$')
         # self.re_cmt = re.compile(r'^set_struc_cmt\(id,"(.+)",(\d)\);$')
         # self.re_member_cmt = re.compile(r'^set_member_cmt(id,\s*0,	"fuckme",	0);
@@ -129,7 +129,7 @@ class BytesParser(object):
             cont["lastBytes"] = [None]
         self.last = cont["lastBytes"]
 
-        self.re_attr = re.compile(r'^(?:set_name|set_cmt|update_extra_cmt|create_byte|create_tbyte|create_word|create_dword|create_qword|create_oword|create_yword|create_float|create_double|create_insn|create_strlit|create_struct|MakeStruct|make_array)\s*\((?:x=)?([^,\)]+).+$')
+        self.re_attr = re.compile(r'^(?:set_name|set_cmt|update_extra_cmt|create_byte|create_tbyte|create_word|create_dword|create_qword|create_oword|create_yword|create_float|create_double|create_insn|create_strlit|create_struct|MakeStruct|make_array)\s*\((?:x=)?([^,\)]+).*?\);$')
         # self.re_cmt = re.compile(r'^set_cmt\s*\(([^,]+),\s*"[^"]*",\s*[^\)]+\);$')
         # self.re_cmt2 = re.compile(r'^update_extra_cmt\s*\(([^,]+),\s*[^,]+,\s*"[^"]*"\);$')
         # self.re_create = re.compile(r'^create_(?:dword|insn)\s*\((?:x=)?([^\)]+)\);$')
@@ -189,7 +189,7 @@ class FunctionsParser(object):
         self.cont = cont["funcs"]
 
         self.re_new = re.compile(r'^add_func\s*\(([^,]+),([^\)]+)\);$')
-        self.re_attr = re.compile(r'^(?:set_name|set_func_cmt|set_func_flags|SetType|set_frame_size|define_local_var)\s*\(([^,\)]+).+$')
+        self.re_attr = re.compile(r'^(?:set_name|set_func_cmt|set_func_flags|SetType|set_frame_size|define_local_var)\s*\(([^,\)]+).+?\);$')
         # del_func set_func_end
 
     def parse(self, line):
@@ -281,10 +281,9 @@ def read_dc(fpath):
                 continue
 
             # skip comment
-            idx = line.find("//")
-            if idx != -1:
-                line = line[:idx]
             line = line.strip()
+            if line.startswith("//"):
+                continue
 
             if not line:
                 continue
@@ -382,7 +381,7 @@ static Enums(void) {
   begin_type_updating(UTP_ENUM);
 """
 
-    print gen_simple(cont1["enums"], cont2["enums"]) # enums change not support
+    print gen_simple("enums" in cont1 and cont1["enums"] or {}, "enums" in cont2 and cont2["enums"] or {}) # enums change not support
 
     print """
   end_type_updating(UTP_ENUM);
