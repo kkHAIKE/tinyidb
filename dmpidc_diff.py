@@ -201,6 +201,9 @@ class FunctionsParser(object):
 
         ret = self.re_attr.match(line)
         if ret:
+            if ret.group(1) not in self.cont and line.startswith("set_name"):
+                f = IDC_Func(ret.group(1), None)
+                self.cont[f.start] = f
             self.cont[ret.group(1)].attrs.append(line)
             return
 
@@ -355,7 +358,8 @@ def gen_function(cont1, cont2):
                 if v2.attr_change(v1):
                     ret.extend(v2.attr_sub(v1))
         else:
-            ret.append("  add_func({0},{1});".format(v2.start, v2.end))
+            if v2.end is not None:
+                ret.append("  add_func({0},{1});".format(v2.start, v2.end))
             ret.extend(v2.attrs)
 
     return "\n".join(ret) + "\n"
